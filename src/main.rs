@@ -1,4 +1,4 @@
-//#![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 use iced::{
     button, executor, Application, Button, Clipboard, Column, Command, Container, Element, Length,
@@ -221,7 +221,8 @@ impl Application for App {
                                         .on_press(Message::Install(details["Link"].to_string())),
                                 ),
                         )
-                        .push(Text::new(details["Description"].to_string())),
+                        .push(Text::new(details["Description"].to_string()))
+                        .padding(16),
                 )
             },
         );

@@ -1,13 +1,8 @@
 {
-    "BepInEx Configuration Manager": {
-        "Author": "BepInEx",
-        "Description": "An easy way to let user configure how a plugin behaves without the need to make your own GUI.",
-        "Link": "https://github.com/BepInEx/BepInEx.ConfigurationManager/releases/download/v16.3/BepInEx.ConfigurationManager_v16.3.zip"
-    },
     "Custom Kart": {
         "Author": "jngo102",
         "Description": "Allows customization of racer sprites and kart model.",
-        "Link": "https://github.com/jngo102/CustomKart/releases/download/untagged-7e908702813fddb00b2d/CustomKart.zip"
+        "Link": "https://github.com/jngo102/CustomKart/releases/download/Pre-Release/CustomKart.zip"
     },
     "Unity Explorer": {
         "Author": "sinai-dev",
