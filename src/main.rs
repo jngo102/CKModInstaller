@@ -1,13 +1,16 @@
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
+
+mod download;
 
 use iced::window;
 use iced::window::Icon;
 use iced::{
-    button, executor, Application, Button, Clipboard, Column, Command, Container, Element,
-    HorizontalAlignment, Length, Row, Settings, Text, VerticalAlignment,
+    Align, button, executor, Application, Button, Clipboard, Column, Command, Container, Element,
+    HorizontalAlignment, Length, ProgressBar, Row, Settings, Subscription, Text, VerticalAlignment,
 };
 use std::collections::HashMap;
 use std::env;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::process::Command as Cmd;
 
@@ -70,7 +73,7 @@ fn main() -> iced::Result {
     App::run(Settings {
         window: window::Settings {
             icon: Option::from(icon),
-            size: (480, 640),
+            size: (320, 640),
             transparent: true,
             ..window::Settings::default()
         },
@@ -132,7 +135,7 @@ fn check_bepinex_install(
         println!("Downloading BepInEx");
         let response = reqwest::blocking::get(bepinex_url).unwrap();
         let content = response.bytes().unwrap();
-        let reader = std::io::Cursor::new(content);
+        let reader = Cursor::new(content);
         let zip = unzip::Unzipper::new(reader, path);
         zip.unzip().expect("Unable to unzip file");
         Cmd::new(
@@ -148,6 +151,7 @@ fn check_bepinex_install(
 }
 
 struct App {
+    current_download: Download,
     install_buttons: Vec<(String, HashMap<String, String>, button::State)>,
     open_file_explorer_cmd: String,
     plugins_path: PathBuf,
@@ -158,6 +162,7 @@ struct App {
 #[derive(Clone, Debug)]
 enum Message {
     Install(String),
+    DownloadProgressed((usize, download::Progress)),
     ShowPlugins,
 }
 
@@ -217,6 +222,7 @@ impl Application for App {
         }
         (
             App {
+                current_download: Download::new(0, String::from("")),
                 install_buttons: Vec::new(),
                 open_file_explorer_cmd: open_file_explorer_cmd,
                 plugins_path: plugins_path,
@@ -227,6 +233,10 @@ impl Application for App {
         )
     }
 
+    fn subscription(&self) -> Subscription<Message> {
+        self.current_download.subscription()
+    }
+
     fn title(&self) -> String {
         String::from("Crowkart Mod Installer")
     }
@@ -234,11 +244,16 @@ impl Application for App {
     fn update(&mut self, message: Message, _clipboard: &mut Clipboard) -> Command<Message> {
         match message {
             Message::Install(link) => {
-                let response = reqwest::blocking::get(link).unwrap();
-                let content = response.bytes().unwrap();
-                let reader = std::io::Cursor::new(content);
-                let zip = unzip::Unzipper::new(reader, &self.plugins_path);
-                zip.unzip().expect("Unable to unzip file");
+                self.current_download = Download::new(0, link.clone());
+                self.current_download.start();
+                // let response = reqwest::blocking::get(link).unwrap();
+                // let content = response.bytes().unwrap();
+                // let reader = std::io::Cursor::new(content);
+                // let zip = unzip::Unzipper::new(reader, &self.plugins_path);
+                // zip.unzip().expect("Unable to unzip file");
+            }
+            Message::DownloadProgressed(progress) => {
+                self.current_download.progress(progress.1);
             }
             Message::ShowPlugins => {
                 Cmd::new(&self.open_file_explorer_cmd)
@@ -290,17 +305,38 @@ impl Application for App {
             },
         );
 
+        // let downloads_column = self.downloads.iter_mut().fold(Column::new().spacing(20), |column, download| {
+        //     column.push(download.view())
+        // })
+        // .align_items(Align::End);
+
+        let current_progress = match &self.current_download.state {
+            State::Idle { .. } => 0.0,
+            State::Downloading { progress } => *progress,
+            State::Finished { .. } => 100.0,
+            State::Errored { .. } => 0.0,
+        };
+
         column = column
             .push(
-                Button::new(&mut self.show_plugins, Text::new("Show Plugins").horizontal_alignment(HorizontalAlignment::Center))
-                    .on_press(Message::ShowPlugins)
-                    .style(self.theme)
-                    .width(Length::Fill),
+                Button::new(
+                    &mut self.show_plugins,
+                    Text::new("Show Plugins").horizontal_alignment(HorizontalAlignment::Center),
+                )
+                .on_press(Message::ShowPlugins)
+                .style(self.theme)
+                .width(Length::Fill),
             )
             .push(
                 Text::new("Icon by @liszhuk")
                     .horizontal_alignment(HorizontalAlignment::Center)
                     .vertical_alignment(VerticalAlignment::Bottom),
+            // )
+            // .push(
+            //     downloads_column
+            ).
+            push(
+                ProgressBar::new(0.0..=100.0, current_progress)
             );
 
         Container::new(column)
@@ -311,6 +347,96 @@ impl Application for App {
             .style(self.theme)
             .into()
     }
+}
+
+#[derive(Debug)]
+struct Download {
+    id: usize,
+    state: State,
+    url: String,
+}
+
+#[derive(Debug)]
+enum State {
+    Idle { button: button::State },
+    Downloading { progress: f32 },
+    Finished { button: button::State },
+    Errored { button: button::State },
+}
+
+impl Download {
+    pub fn new(id: usize, url: String) -> Self {
+        Download {
+            id,
+            state: State::Idle {
+                button: button::State::new(),
+            },
+            url: url,
+        }
+    }
+
+    pub fn start(&mut self) {
+        match self.state {
+            State::Idle { .. }
+            | State::Finished { .. }
+            | State::Errored { .. } => {
+                self.state = State::Downloading { progress: 0.0 };
+            }
+            _ => {}
+        }
+    }
+
+    pub fn progress(&mut self, new_progress: download::Progress) {
+        match &mut self.state {
+            State::Downloading { progress } => match new_progress {
+                download::Progress::Started => {
+                    *progress = 0.0;
+                }
+                download::Progress::Advanced(percentage) => {
+                    *progress = percentage;
+                }
+                download::Progress::Finished => {
+                    self.state = State::Finished {
+                        button: button::State::new(),
+                    }
+                }
+                download::Progress::Errored => {
+                    self.state = State::Errored {
+                        button: button::State::new(),
+                    };
+                }
+            },
+            _ => {}
+        }
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        match self.state {
+            State::Downloading { .. } => {
+                download::file(self.id, self.url.clone())
+                    .map(Message::DownloadProgressed)
+            }
+            _ => Subscription::none(),
+        }
+    }
+
+    // pub fn view(&mut self) -> Element<Message> {
+    //     let current_progress = match &self.state {
+    //         State::Idle { .. } => 0.0,
+    //         State::Downloading { progress } => *progress,
+    //         State::Finished { .. } => 100.0,
+    //         State::Errored { .. } => 0.0,
+    //     };
+
+    //     let progress_bar = ProgressBar::new(0.0..=100.0, current_progress);
+
+    //     Column::new()
+    //         .spacing(10)
+    //         .padding(10)
+    //         .align_items(Align::Center)
+    //         .push(progress_bar)
+    //         .into()
+    // }
 }
 
 mod style {
